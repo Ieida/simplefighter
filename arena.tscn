@@ -1,0 +1,221 @@
+[gd_scene load_steps=8 format=3 uid="uid://bxohf7mjxt8lh"]
+
+[ext_resource type="FontFile" uid="uid://cr1d3ego1cevy" path="res://PixeloidSans.otf" id="1_lu7uv"]
+
+[sub_resource type="GDScript" id="GDScript_k5ti7"]
+resource_name = "arena"
+script/source = "extends Node2D
+
+
+var fighters: Array[Node2D]
+var f1_entered: bool
+
+
+func _ready():
+	var fs = $Fighters
+	if fs.get_child_count() > 0:
+		var f1 = fs.get_child(0)
+		var f2 = fs.get_child(1)
+		fighters.append(f1)
+		fighters.append(f2)
+		f1.died.connect(_on_f1_died)
+		f2.died.connect(_on_f2_died)
+	else:
+		fs.child_entered_tree.connect(_on_f_entered_tree)
+
+
+func _on_f_entered_tree(f: Node):
+	if f1_entered:
+		f.died.connect(_on_f2_died)
+	else:
+		f1_entered = true
+		f.died.connect(_on_f1_died)
+
+
+func _on_f1_died():
+	if is_multiplayer_authority():
+		await get_tree().create_timer(3).timeout
+		var p1 = $P1FighterSpawner/P1SpawnPoint.global_position
+		var p2 = $P1FighterSpawner/P2SpawnPoint.global_position
+		fighters[0].respawn.rpc(p1)
+		fighters[1].respawn.rpc(p2)
+
+
+func _on_f2_died():
+	if is_multiplayer_authority():
+		await get_tree().create_timer(3).timeout
+		var p1 = $P1FighterSpawner/P1SpawnPoint.global_position
+		var p2 = $P1FighterSpawner/P2SpawnPoint.global_position
+		fighters[0].respawn.rpc(p1)
+		fighters[1].respawn.rpc(p2)
+"
+
+[sub_resource type="GDScript" id="GDScript_bey14"]
+resource_name = "p2_fighter_spawner"
+script/source = "extends MultiplayerSpawner
+
+
+var p1: Node
+var p2: Node
+var sp1: Node2D
+var sp2: Node2D
+var f1: Node
+var f2: Node
+
+
+func _ready():
+	if is_multiplayer_authority():
+		var ps = get_node(\"/root/Multiplayer/Players\")
+		p1 = ps.get_child(0)
+		p2 = ps.get_child(1)
+		sp1 = get_child(0)
+		sp2 = get_child(1)
+		spawn_fighter(p1.get_multiplayer_authority(), sp1.global_position)
+		spawn_fighter(p2.get_multiplayer_authority(), sp2.global_position)
+
+
+func spawn_fighter(id: int, pos: Vector2):
+	var s = load(get_spawnable_scene(0)) as PackedScene
+	var f = s.instantiate()
+	f.name = str(id)
+	f.global_position = pos
+	get_node(spawn_path).add_child(f, true)
+"
+
+[sub_resource type="GDScript" id="GDScript_xxudq"]
+resource_name = "score_handler"
+script/source = "extends Node
+
+
+@export var p1_score: Label
+@export var p2_score: Label
+var f1_joined: bool
+
+
+func _ready():
+	var fs = $\"../Fighters\"
+	if fs.get_child_count() > 0:
+		var f1 = fs.get_child(0)
+		var f2 = fs.get_child(1)
+		f1.died.connect(_on_f1_died)
+		f2.died.connect(_on_f2_died)
+	else:
+		fs.child_entered_tree.connect(_on_f_entered_tree)
+
+
+func _on_f_entered_tree(f: Node):
+	if f1_joined:
+		f.died.connect(_on_f2_died)
+	else:
+		f1_joined = true
+		f.died.connect(_on_f1_died)
+
+
+func _on_f1_died():
+	var s = int(p2_score.text) + 1
+	p2_score.text = str(s)
+
+
+func _on_f2_died():
+	var s = int(p1_score.text) + 1
+	p1_score.text = str(s)
+"
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_k2uet"]
+size = Vector2(160, 352)
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_5t5r4"]
+content_margin_left = 20.0
+content_margin_top = 20.0
+content_margin_right = 20.0
+content_margin_bottom = 20.0
+
+[sub_resource type="LabelSettings" id="LabelSettings_e7jhi"]
+font = ExtResource("1_lu7uv")
+font_size = 27
+
+[node name="Arena" type="Node2D"]
+script = SubResource("GDScript_k5ti7")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+layer = -128
+
+[node name="ColorRect" type="ColorRect" parent="CanvasLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 1)
+
+[node name="P1FighterSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("res://fighters/spirit_boxer/spirit_boxer.tscn")
+spawn_path = NodePath("../Fighters")
+script = SubResource("GDScript_bey14")
+
+[node name="P1SpawnPoint" type="Node2D" parent="P1FighterSpawner" groups=["p1sp"]]
+position = Vector2(240, 176)
+
+[node name="P2SpawnPoint" type="Node2D" parent="P1FighterSpawner" groups=["p2sp"]]
+position = Vector2(400, 176)
+
+[node name="Fighters" type="Node" parent="."]
+
+[node name="ScoreHandler" type="Node" parent="." node_paths=PackedStringArray("p1_score", "p2_score")]
+script = SubResource("GDScript_xxudq")
+p1_score = NodePath("../UI/PanelContainer/HBoxContainer/P1Score")
+p2_score = NodePath("../UI/PanelContainer/HBoxContainer/P2Score")
+
+[node name="LeftWall" type="StaticBody2D" parent="."]
+position = Vector2(80, 176)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LeftWall"]
+shape = SubResource("RectangleShape2D_k2uet")
+
+[node name="RightWall" type="StaticBody2D" parent="."]
+position = Vector2(560, 176)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="RightWall"]
+shape = SubResource("RectangleShape2D_k2uet")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(320, 176)
+zoom = Vector2(2, 2)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="PanelContainer" type="PanelContainer" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxEmpty_5t5r4")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="UI/PanelContainer"]
+layout_mode = 2
+size_flags_vertical = 0
+theme_override_constants/separation = 50
+alignment = 1
+
+[node name="P1Score" type="Label" parent="UI/PanelContainer/HBoxContainer"]
+texture_filter = 1
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 0
+text = "0"
+label_settings = SubResource("LabelSettings_e7jhi")
+
+[node name="Title" type="Label" parent="UI/PanelContainer/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 0
+text = "Score"
+label_settings = SubResource("LabelSettings_e7jhi")
+
+[node name="P2Score" type="Label" parent="UI/PanelContainer/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 0
+text = "0"
+label_settings = SubResource("LabelSettings_e7jhi")

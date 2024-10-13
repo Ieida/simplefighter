@@ -1,0 +1,54 @@
+[gd_scene load_steps=4 format=3 uid="uid://duci66kwnphev"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xxp2i"]
+bg_color = Color(0.15, 0.15, 0.15, 1)
+
+[sub_resource type="GDScript" id="GDScript_smiup"]
+resource_name = "main_menu"
+script/source = "extends PanelContainer
+
+
+func set_is_looking_for_match(on: bool):
+	$VBoxContainer/Fight.disabled = true
+	$VBoxContainer/Label.show()
+"
+
+[sub_resource type="GDScript" id="GDScript_jsusr"]
+resource_name = "fight"
+script/source = "extends Button
+
+
+func _ready():
+	pressed.connect(_on_pressed)
+
+
+func _on_pressed():
+	var p = ENetMultiplayerPeer.new()
+	p.create_client(\"localhost\", 4433)
+	multiplayer.multiplayer_peer = p
+"
+
+[node name="MainMenu" type="PanelContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_xxp2i")
+script = SubResource("GDScript_smiup")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+alignment = 1
+
+[node name="Fight" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+text = "fight"
+script = SubResource("GDScript_jsusr")
+
+[node name="Label" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+text = "looking for match..."

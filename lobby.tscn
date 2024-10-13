@@ -1,0 +1,155 @@
+[gd_scene load_steps=6 format=3 uid="uid://cbtg0ralv6xfk"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pxtmc"]
+content_margin_left = 20.0
+content_margin_top = 20.0
+content_margin_right = 20.0
+content_margin_bottom = 20.0
+bg_color = Color(0.15, 0.15, 0.15, 1)
+
+[sub_resource type="GDScript" id="GDScript_swkfi"]
+resource_name = "lobby"
+script/source = "extends PanelContainer
+
+
+@onready var chat = $HBoxContainer/Chat
+var players: Array[Player]
+var players_ready_status: Array[bool]
+var is_fight_starting: bool
+
+
+func _ready():
+	var ps = get_node(\"/root/Multiplayer/Players\")
+	for c in ps.get_children():
+		players.append(c)
+		players_ready_status.append(false)
+	ps.child_entered_tree.connect(_on_player_entered_tree)
+	chat.ready_set.connect(_on_chat_ready_set)
+
+
+func _on_chat_ready_set(id: int):
+	if not is_multiplayer_authority(): return
+	if is_fight_starting: return
+	
+	var pi = -1
+	for p in players.size():
+		if players[p].get_multiplayer_authority() == id:
+			pi = p
+			break
+	players_ready_status[pi] = true
+	chat.announce.rpc(\"P%s is ready\" % pi)
+	
+	for r in players_ready_status:
+		if not r: return
+	
+	is_fight_starting = true
+	chat.announce.rpc(\"Fight starting...\")
+	await get_tree().create_timer(3).timeout
+	get_node(\"/root/Multiplayer\").start_game()
+
+
+func _on_player_entered_tree(node: Node):
+	players.append(node)
+	players_ready_status.append(false)
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_fw7ov"]
+content_margin_left = 10.0
+content_margin_top = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 10.0
+bg_color = Color(0, 0, 0, 0.247059)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="GDScript" id="GDScript_merrj"]
+resource_name = "chat"
+script/source = "extends PanelContainer
+
+
+signal ready_set(id: int)
+
+
+@onready var label: RichTextLabel = $VBoxContainer/RichTextLabel
+@onready var line_edit: LineEdit = $VBoxContainer/LineEdit
+
+
+func _ready():
+	line_edit.text_submitted.connect(_on_text_submitted)
+
+
+func _on_text_submitted(new_text: String):
+	line_edit.clear()
+	if new_text == \"/r\":
+		_set_ready.rpc()
+		return
+	_add_chat.rpc(new_text)
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func _add_chat(chat: String):
+	label.push_context()
+	label.push_paragraph(HORIZONTAL_ALIGNMENT_LEFT)
+	label.push_color(Color.AQUA)
+	label.add_text(\"P?: \")
+	label.push_color(Color.WHITE)
+	label.add_text(chat)
+	label.pop_context()
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func announce(text: String, color: Color = Color.WHITE):
+	label.push_context()
+	label.push_paragraph(HORIZONTAL_ALIGNMENT_LEFT)
+	label.push_color(color)
+	label.add_text(text)
+	label.pop_context()
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func _set_ready():
+	var pid = multiplayer.get_remote_sender_id()
+	ready_set.emit(pid)
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_mmlva"]
+bg_color = Color(0, 0, 0, 0.247059)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="Lobby" type="PanelContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_pxtmc")
+script = SubResource("GDScript_swkfi")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Chat" type="PanelContainer" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_fw7ov")
+script = SubResource("GDScript_merrj")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/Chat"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="RichTextLabel" type="RichTextLabel" parent="HBoxContainer/Chat/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_mmlva")
+scroll_following = true
+
+[node name="LineEdit" type="LineEdit" parent="HBoxContainer/Chat/VBoxContainer"]
+layout_mode = 2
+placeholder_text = "Type here to chat"

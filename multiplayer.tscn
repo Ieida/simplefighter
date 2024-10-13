@@ -1,0 +1,48 @@
+[gd_scene load_steps=5 format=3 uid="uid://bprk76lqb3h8t"]
+
+[ext_resource type="Script" path="res://multiplayer.gd" id="1_xhotm"]
+[ext_resource type="Script" path="res://level_spawner.gd" id="2_rn20v"]
+[ext_resource type="Script" path="res://player_spawner.gd" id="3_q0spc"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xxp2i"]
+bg_color = Color(0.15, 0.15, 0.15, 1)
+
+[node name="Multiplayer" type="Node"]
+script = ExtResource("1_xhotm")
+
+[node name="Players" type="Node" parent="."]
+
+[node name="Level" type="Node" parent="."]
+
+[node name="PlayerSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("res://player.tscn")
+spawn_path = NodePath("../Players")
+script = ExtResource("3_q0spc")
+
+[node name="LevelSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("res://lobby.tscn", "res://arena.tscn")
+spawn_path = NodePath("../Level")
+script = ExtResource("2_rn20v")
+
+[node name="MainMenu" type="PanelContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_xxp2i")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MainMenu"]
+layout_mode = 2
+alignment = 1
+
+[node name="Fight" type="Button" parent="MainMenu/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+text = "fight"
+
+[node name="Label" type="Label" parent="MainMenu/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+text = "looking for match..."
