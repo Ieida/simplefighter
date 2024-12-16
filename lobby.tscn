@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://cbtg0ralv6xfk"]
+[gd_scene load_steps=17 format=3 uid="uid://cbtg0ralv6xfk"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pxtmc"]
 content_margin_left = 20.0
@@ -12,46 +12,160 @@ resource_name = "lobby"
 script/source = "extends PanelContainer
 
 
-@onready var chat = $HBoxContainer/Chat
-var players: Array[Player]
+@export var ready_button: Button
+@export var disconnect_button: Button
+@export var chat: PanelContainer
+@onready var players: Node = get_node(\"/root/Multiplayer/Players\")
 var players_ready_status: Array[bool]
 var is_fight_starting: bool
+var has_debug_arg: bool
+
+
+func _cancel_fight():
+	is_fight_starting = false
+	chat.announce(\"Fight cancelled.\")
+
+
+func _check_game_start():
+	if players_ready_status.size() < 2:
+		chat.announce(\"Not enough players to start the fight.\")
+		return
+	elif players_ready_status.size() > 2:
+		chat.announce(\"Too many players to start the fight.\")
+		return
+	for s in players_ready_status:
+		if not s: return
+	
+	_start_game()
+
+
+func _on_disconnect_pressed():
+	var m = get_node(\"/root/Multiplayer\")
+	m.disconnect_from_game()
+
+
+func _on_player_entered_tree(_node: Node):
+	players_ready_status.append(false)
+	var pi = _node.get_index()
+	chat.announce(\"P%s joined.\" % (pi + 1))
+	await get_tree().process_frame
+	if is_multiplayer_authority():
+		_sync_ready_status.rpc_id(_node.get_multiplayer_authority(), players_ready_status)
+	if has_debug_arg and players_ready_status.size() == 2:
+		_start_game()
+
+
+func _on_player_exiting_tree(node: Node):
+	var pi = node.get_index()
+	players_ready_status.remove_at(pi)
+	chat.announce(\"P%s left.\" % (pi + 1))
+	if is_fight_starting:
+		_cancel_fight()
 
 
 func _ready():
-	var ps = get_node(\"/root/Multiplayer/Players\")
-	for c in ps.get_children():
-		players.append(c)
+	var args = OS.get_cmdline_args()
+	has_debug_arg = args.has(\"--d\")
+	
+	for pi in players.get_child_count():
 		players_ready_status.append(false)
-	ps.child_entered_tree.connect(_on_player_entered_tree)
-	chat.ready_set.connect(_on_chat_ready_set)
+	players.child_entered_tree.connect(_on_player_entered_tree)
+	players.child_exiting_tree.connect(_on_player_exiting_tree)
+	ready_button.toggled.connect(_on_ready_button_toggled)
+	disconnect_button.pressed.connect(_on_disconnect_pressed)
 
 
-func _on_chat_ready_set(id: int):
-	if not is_multiplayer_authority(): return
-	if is_fight_starting: return
-	
-	var pi = -1
-	for p in players.size():
-		if players[p].get_multiplayer_authority() == id:
-			pi = p
-			break
-	players_ready_status[pi] = true
-	chat.announce.rpc(\"P%s is ready\" % pi)
-	
-	for r in players_ready_status:
-		if not r: return
-	
+@rpc(\"authority\", \"call_local\", \"reliable\")
+func _start_game():
 	is_fight_starting = true
-	chat.announce.rpc(\"Fight starting...\")
-	await get_tree().create_timer(3).timeout
-	get_node(\"/root/Multiplayer\").start_game()
+	for s in 3:
+		chat.announce(\"The fight will start in %s seconds.\" % (3 - s))
+		await get_tree().create_timer(1).timeout
+		if not is_fight_starting: return
+	
+	if is_multiplayer_authority():
+		get_node(\"/root/Multiplayer\").start_game()
 
 
-func _on_player_entered_tree(node: Node):
-	players.append(node)
-	players_ready_status.append(false)
+func _start_game_immediately():
+	if is_multiplayer_authority():
+		get_node(\"/root/Multiplayer\").start_game()
+
+
+func _on_ready_button_toggled(toggled_on: bool):
+	set_ready.rpc(toggled_on)
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func set_ready(status: bool):
+	var id = multiplayer.get_remote_sender_id()
+	var p = players.find_child(str(id), false, false)
+	var pi = p.get_index()
+	if status:
+		chat.announce(\"P%s is ready.\" % (pi + 1))
+		players_ready_status[pi] = true
+		_check_game_start()
+	else:
+		chat.announce(\"P%s is not ready.\" % (pi + 1))
+		players_ready_status[pi] = false
+		if is_fight_starting:
+			_cancel_fight()
+
+
+@rpc(\"authority\", \"call_remote\", \"reliable\")
+func _sync_ready_status(status: Array[bool]):
+	players_ready_status = status
 "
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vcrlm"]
+bg_color = Color(0, 0, 0, 0.333333)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_wn8ad"]
+bg_color = Color(0.2, 0.2, 0.2, 0.498039)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 1, 0.498039, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_2b4h0"]
+bg_color = Color(0.2, 0.2, 0.2, 0.247059)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_2a8v8"]
+bg_color = Color(0, 0, 0, 0.498039)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 1, 0.498039, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ck10p"]
+bg_color = Color(0, 0, 0, 0.247059)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_fw7ov"]
 content_margin_left = 10.0
@@ -69,31 +183,37 @@ resource_name = "chat"
 script/source = "extends PanelContainer
 
 
-signal ready_set(id: int)
-
-
-@onready var label: RichTextLabel = $VBoxContainer/RichTextLabel
-@onready var line_edit: LineEdit = $VBoxContainer/LineEdit
+@export var label: RichTextLabel
+@export var line_edit: LineEdit
+@export var send_button: Button
+@onready var players: Node = get_node(\"/root/Multiplayer/Players\")
 
 
 func _ready():
 	line_edit.text_submitted.connect(_on_text_submitted)
+	send_button.pressed.connect(_on_send_button_pressed)
+
+
+func _on_send_button_pressed():
+	_on_text_submitted(line_edit.text)
 
 
 func _on_text_submitted(new_text: String):
+	if new_text.is_empty(): return
+	
 	line_edit.clear()
-	if new_text == \"/r\":
-		_set_ready.rpc()
-		return
 	_add_chat.rpc(new_text)
 
 
 @rpc(\"any_peer\", \"call_local\", \"reliable\")
 func _add_chat(chat: String):
+	var id = multiplayer.get_remote_sender_id()
+	var p = players.find_child(str(id), false, false)
+	var pi = p.get_index()
 	label.push_context()
 	label.push_paragraph(HORIZONTAL_ALIGNMENT_LEFT)
 	label.push_color(Color.AQUA)
-	label.add_text(\"P?: \")
+	label.add_text(\"P%s: \" % (pi + 1))
 	label.push_color(Color.WHITE)
 	label.add_text(chat)
 	label.pop_context()
@@ -106,12 +226,6 @@ func announce(text: String, color: Color = Color.WHITE):
 	label.push_color(color)
 	label.add_text(text)
 	label.pop_context()
-
-
-@rpc(\"any_peer\", \"call_local\", \"reliable\")
-func _set_ready():
-	var pid = multiplayer.get_remote_sender_id()
-	ready_set.emit(pid)
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_mmlva"]
@@ -121,7 +235,60 @@ corner_radius_top_right = 10
 corner_radius_bottom_right = 10
 corner_radius_bottom_left = 10
 
-[node name="Lobby" type="PanelContainer"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hsfeg"]
+content_margin_left = 5.0
+content_margin_top = 5.0
+content_margin_right = 5.0
+content_margin_bottom = 5.0
+bg_color = Color(0, 0, 0, 0.247059)
+border_width_bottom = 2
+border_color = Color(0, 0, 0, 0.333333)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_kce3i"]
+bg_color = Color(0, 0, 0, 0.333333)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0022w"]
+bg_color = Color(0.2, 0.2, 0.2, 0.333333)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_4yjpj"]
+bg_color = Color(0.2, 0.2, 0.2, 0.247059)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_shrju"]
+bg_color = Color(0, 0, 0, 0.333333)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_6oj1d"]
+bg_color = Color(0, 0, 0, 0.247059)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[node name="Lobby" type="PanelContainer" node_paths=PackedStringArray("ready_button", "disconnect_button", "chat")]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -129,16 +296,48 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_pxtmc")
 script = SubResource("GDScript_swkfi")
+ready_button = NodePath("HBoxContainer/VBoxContainer/Ready")
+disconnect_button = NodePath("HBoxContainer/VBoxContainer/Disconnect")
+chat = NodePath("HBoxContainer/Chat")
 
 [node name="HBoxContainer" type="HBoxContainer" parent="."]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Chat" type="PanelContainer" parent="HBoxContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer"]
+layout_mode = 2
+
+[node name="Ready" type="Button" parent="HBoxContainer/VBoxContainer"]
+custom_minimum_size = Vector2(100, 50)
+layout_mode = 2
+theme_override_styles/focus = SubResource("StyleBoxFlat_vcrlm")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_wn8ad")
+theme_override_styles/hover = SubResource("StyleBoxFlat_2b4h0")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_2a8v8")
+theme_override_styles/normal = SubResource("StyleBoxFlat_ck10p")
+toggle_mode = true
+text = "Ready"
+
+[node name="Disconnect" type="Button" parent="HBoxContainer/VBoxContainer"]
+custom_minimum_size = Vector2(100, 50)
+layout_mode = 2
+size_flags_vertical = 10
+theme_override_styles/focus = SubResource("StyleBoxFlat_vcrlm")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_wn8ad")
+theme_override_styles/hover = SubResource("StyleBoxFlat_2b4h0")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_2a8v8")
+theme_override_styles/normal = SubResource("StyleBoxFlat_ck10p")
+toggle_mode = true
+text = "Disconnect"
+
+[node name="Chat" type="PanelContainer" parent="HBoxContainer" node_paths=PackedStringArray("label", "line_edit", "send_button")]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_styles/panel = SubResource("StyleBoxFlat_fw7ov")
 script = SubResource("GDScript_merrj")
+label = NodePath("VBoxContainer/RichTextLabel")
+line_edit = NodePath("VBoxContainer/HBoxContainer/LineEdit")
+send_button = NodePath("VBoxContainer/HBoxContainer/Send")
 
 [node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/Chat"]
 layout_mode = 2
@@ -150,6 +349,23 @@ size_flags_vertical = 3
 theme_override_styles/normal = SubResource("StyleBoxFlat_mmlva")
 scroll_following = true
 
-[node name="LineEdit" type="LineEdit" parent="HBoxContainer/Chat/VBoxContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="HBoxContainer/Chat/VBoxContainer"]
 layout_mode = 2
+
+[node name="LineEdit" type="LineEdit" parent="HBoxContainer/Chat/VBoxContainer/HBoxContainer"]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/focus = SubResource("StyleBoxFlat_hsfeg")
+theme_override_styles/normal = SubResource("StyleBoxFlat_hsfeg")
 placeholder_text = "Type here to chat"
+
+[node name="Send" type="Button" parent="HBoxContainer/Chat/VBoxContainer/HBoxContainer"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+theme_override_styles/focus = SubResource("StyleBoxFlat_kce3i")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_0022w")
+theme_override_styles/hover = SubResource("StyleBoxFlat_4yjpj")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_shrju")
+theme_override_styles/normal = SubResource("StyleBoxFlat_6oj1d")
+text = "Send"

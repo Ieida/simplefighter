@@ -1,85 +1,89 @@
-[gd_scene load_steps=8 format=3 uid="uid://bxohf7mjxt8lh"]
+[gd_scene load_steps=14 format=3 uid="uid://bxohf7mjxt8lh"]
 
+[ext_resource type="Texture2D" uid="uid://cmx60wfjfwrr6" path="res://move_left_icon.png" id="1_ca2s0"]
 [ext_resource type="FontFile" uid="uid://cr1d3ego1cevy" path="res://PixeloidSans.otf" id="1_lu7uv"]
+[ext_resource type="Texture2D" uid="uid://fpor0emkki2k" path="res://move_left_icon_pressed.png" id="2_wjo53"]
+[ext_resource type="Texture2D" uid="uid://dsj15smv7a2rx" path="res://attack_icon.png" id="4_okvb3"]
+[ext_resource type="Texture2D" uid="uid://dp4gbheiy6dmw" path="res://attack_icon_pressed.png" id="5_c62tk"]
+[ext_resource type="PackedScene" uid="uid://dd1whrcoovc8g" path="res://menus/fighter_selection/fighter_selection.tscn" id="6_jfh2b"]
 
 [sub_resource type="GDScript" id="GDScript_k5ti7"]
 resource_name = "arena"
 script/source = "extends Node2D
 
 
-var fighters: Array[Node2D]
-var f1_entered: bool
+@export var fighter_selection: Control
+var players: Node
+var free_fighters: Array[Node2D]
+
+
+func _on_fighter_died():
+	await get_tree().create_timer(3).timeout
+	despawn_fighters()
+	await get_tree().create_timer(1).timeout
+	spawn_fighters()
+
+
+func _on_player_entered(_player: Node):
+	if is_multiplayer_authority():
+		var idx = _player.get_index()
+		if idx > 1: return
+		if free_fighters.size() < 1: return
+		
+		var f = free_fighters.pick_random()
+		f.name = _player.name
+		f.set_id(int(str(_player.name)))
+		free_fighters.erase(f)
+
+
+func _on_player_exited(_player: Node):
+	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		var f = $Fighters.find_child(_player.name, false, false)
+		if f:
+			f.set_id(-1)
+			free_fighters.append(f)
 
 
 func _ready():
-	var fs = $Fighters
-	if fs.get_child_count() > 0:
-		var f1 = fs.get_child(0)
-		var f2 = fs.get_child(1)
-		fighters.append(f1)
-		fighters.append(f2)
-		f1.died.connect(_on_f1_died)
-		f2.died.connect(_on_f2_died)
-	else:
-		fs.child_entered_tree.connect(_on_f_entered_tree)
-
-
-func _on_f_entered_tree(f: Node):
-	if f1_entered:
-		f.died.connect(_on_f2_died)
-	else:
-		f1_entered = true
-		f.died.connect(_on_f1_died)
-
-
-func _on_f1_died():
+	players = get_node(\"/root/Multiplayer/Players\")
+	players.child_entered_tree.connect(_on_player_entered)
+	players.child_exiting_tree.connect(_on_player_exited)
+	
 	if is_multiplayer_authority():
-		await get_tree().create_timer(3).timeout
-		var p1 = $P1FighterSpawner/P1SpawnPoint.global_position
-		var p2 = $P1FighterSpawner/P2SpawnPoint.global_position
-		fighters[0].respawn.rpc(p1)
-		fighters[1].respawn.rpc(p2)
+		await get_tree().create_timer(1).timeout
+		show_fighter_selection.rpc()
+		#spawn_fighters()
 
 
-func _on_f2_died():
-	if is_multiplayer_authority():
-		await get_tree().create_timer(3).timeout
-		var p1 = $P1FighterSpawner/P1SpawnPoint.global_position
-		var p2 = $P1FighterSpawner/P2SpawnPoint.global_position
-		fighters[0].respawn.rpc(p1)
-		fighters[1].respawn.rpc(p2)
-"
-
-[sub_resource type="GDScript" id="GDScript_bey14"]
-resource_name = "p2_fighter_spawner"
-script/source = "extends MultiplayerSpawner
+func despawn_fighters():
+	for f in $Fighters.get_children():
+		f.queue_free.call_deferred()
 
 
-var p1: Node
-var p2: Node
-var sp1: Node2D
-var sp2: Node2D
-var f1: Node
-var f2: Node
+@rpc(\"authority\", \"call_local\", \"reliable\")
+func show_fighter_selection():
+	fighter_selection.show()
+	await fighter_selection.fighter_selected
+	## NOT IMPLEMENTED
 
 
-func _ready():
-	if is_multiplayer_authority():
-		var ps = get_node(\"/root/Multiplayer/Players\")
-		p1 = ps.get_child(0)
-		p2 = ps.get_child(1)
-		sp1 = get_child(0)
-		sp2 = get_child(1)
-		spawn_fighter(p1.get_multiplayer_authority(), sp1.global_position)
-		spawn_fighter(p2.get_multiplayer_authority(), sp2.global_position)
-
-
-func spawn_fighter(id: int, pos: Vector2):
-	var s = load(get_spawnable_scene(0)) as PackedScene
-	var f = s.instantiate()
-	f.name = str(id)
-	f.global_position = pos
-	get_node(spawn_path).add_child(f, true)
+func spawn_fighters():
+	var f_scn = load(\"res://fighters/spirit_boxer/spirit_boxer.tscn\") as PackedScene
+	for i in 2:
+		var p: Player = null
+		if players.get_child_count() >= (i - 1):
+			p = players.get_child(i)
+		var f = f_scn.instantiate() as Node2D
+		if p:
+			f.name = p.name
+			f.set_id(int(str(p.name)))
+		else:
+			f.name = \"F%s\" % i
+			f.set_id(-1)
+			free_fighters.append(f)
+		f.global_position = $SpawnPoints.get_child(i).global_position
+		f.died.connect(_on_fighter_died)
+		$Fighters.add_child(f, true)
 "
 
 [sub_resource type="GDScript" id="GDScript_xxudq"]
@@ -87,38 +91,52 @@ resource_name = "score_handler"
 script/source = "extends Node
 
 
+@export var fighters: Node
 @export var p1_score: Label
 @export var p2_score: Label
-var f1_joined: bool
 
 
 func _ready():
-	var fs = $\"../Fighters\"
-	if fs.get_child_count() > 0:
-		var f1 = fs.get_child(0)
-		var f2 = fs.get_child(1)
-		f1.died.connect(_on_f1_died)
-		f2.died.connect(_on_f2_died)
+	if is_multiplayer_authority():
+		fighters.child_entered_tree.connect(_on_fighter_entered)
+		if fighters.get_child_count() > 1:
+			var f1 = fighters.get_child(1)
+			var f2 = fighters.get_child(2)
+			f1.died.connect(_on_f1_died)
+			f2.died.connect(_on_f2_died)
 	else:
-		fs.child_entered_tree.connect(_on_f_entered_tree)
+		_request_score_sync.rpc_id(1)
 
 
-func _on_f_entered_tree(f: Node):
-	if f1_joined:
-		f.died.connect(_on_f2_died)
-	else:
-		f1_joined = true
-		f.died.connect(_on_f1_died)
+func _on_fighter_entered(f: Node):
+	if is_multiplayer_authority():
+		if f.get_index() == 0:
+			f.died.connect(_on_f1_died)
+		else:
+			f.died.connect(_on_f2_died)
 
 
 func _on_f1_died():
 	var s = int(p2_score.text) + 1
 	p2_score.text = str(s)
+	_sync_score.rpc([int(p1_score.text), int(p2_score.text)])
 
 
 func _on_f2_died():
 	var s = int(p1_score.text) + 1
 	p1_score.text = str(s)
+	_sync_score.rpc([int(p1_score.text), int(p2_score.text)])
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func _request_score_sync():
+	_sync_score.rpc_id(multiplayer.get_remote_sender_id(), [int(p1_score.text), int(p2_score.text)])
+
+
+@rpc(\"authority\", \"call_local\", \"reliable\")
+func _sync_score(scr: PackedInt32Array):
+	p1_score.text = str(scr[0])
+	p2_score.text = str(scr[1])
 "
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_k2uet"]
@@ -134,8 +152,39 @@ content_margin_bottom = 20.0
 font = ExtResource("1_lu7uv")
 font_size = 27
 
-[node name="Arena" type="Node2D"]
+[sub_resource type="GDScript" id="GDScript_ej6nd"]
+resource_name = "score_reflection"
+script/source = "extends PanelContainer
+
+
+@export var p1_score: Label
+@export var p2_score: Label
+@export var p1_score_reflection: Label
+@export var p2_score_reflection: Label
+
+
+func _process(_delta):
+	p1_score_reflection.text = p1_score.text
+	p2_score_reflection.text = p2_score.text
+"
+
+[sub_resource type="GDScript" id="GDScript_4r8mb"]
+resource_name = "dbtn"
+script/source = "extends Button
+
+
+func _ready():
+	pressed.connect(_p)
+
+
+func _p():
+	var m = get_node(\"/root/Multiplayer\")
+	m.disconnect_from_game()
+"
+
+[node name="Arena" type="Node2D" node_paths=PackedStringArray("fighter_selection")]
 script = SubResource("GDScript_k5ti7")
+fighter_selection = NodePath("UI/FighterSelection")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 layer = -128
@@ -148,21 +197,23 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0, 0, 0, 1)
 
-[node name="P1FighterSpawner" type="MultiplayerSpawner" parent="."]
+[node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="."]
 _spawnable_scenes = PackedStringArray("res://fighters/spirit_boxer/spirit_boxer.tscn")
 spawn_path = NodePath("../Fighters")
-script = SubResource("GDScript_bey14")
-
-[node name="P1SpawnPoint" type="Node2D" parent="P1FighterSpawner" groups=["p1sp"]]
-position = Vector2(240, 176)
-
-[node name="P2SpawnPoint" type="Node2D" parent="P1FighterSpawner" groups=["p2sp"]]
-position = Vector2(400, 176)
 
 [node name="Fighters" type="Node" parent="."]
 
-[node name="ScoreHandler" type="Node" parent="." node_paths=PackedStringArray("p1_score", "p2_score")]
+[node name="SpawnPoints" type="Node" parent="."]
+
+[node name="P1" type="Node2D" parent="SpawnPoints" groups=["p1sp"]]
+position = Vector2(240, 176)
+
+[node name="P2" type="Node2D" parent="SpawnPoints" groups=["p2sp"]]
+position = Vector2(400, 176)
+
+[node name="ScoreHandler" type="Node" parent="." node_paths=PackedStringArray("fighters", "p1_score", "p2_score")]
 script = SubResource("GDScript_xxudq")
+fighters = NodePath("../Fighters")
 p1_score = NodePath("../UI/PanelContainer/HBoxContainer/P1Score")
 p2_score = NodePath("../UI/PanelContainer/HBoxContainer/P2Score")
 
@@ -190,6 +241,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxEmpty_5t5r4")
 
 [node name="HBoxContainer" type="HBoxContainer" parent="UI/PanelContainer"]
@@ -219,3 +271,110 @@ size_flags_horizontal = 4
 size_flags_vertical = 0
 text = "0"
 label_settings = SubResource("LabelSettings_e7jhi")
+
+[node name="Reflection" type="PanelContainer" parent="UI" node_paths=PackedStringArray("p1_score", "p2_score", "p1_score_reflection", "p2_score_reflection")]
+modulate = Color(1, 1, 1, 0.247059)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 275.0
+offset_bottom = 275.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(1, -0.5)
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxEmpty_5t5r4")
+script = SubResource("GDScript_ej6nd")
+p1_score = NodePath("../PanelContainer/HBoxContainer/P1Score")
+p2_score = NodePath("../PanelContainer/HBoxContainer/P2Score")
+p1_score_reflection = NodePath("HBoxContainer/P1Score")
+p2_score_reflection = NodePath("HBoxContainer/P2Score")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="UI/Reflection"]
+layout_mode = 2
+size_flags_vertical = 0
+theme_override_constants/separation = 50
+alignment = 1
+
+[node name="P1Score" type="Label" parent="UI/Reflection/HBoxContainer"]
+texture_filter = 1
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 0
+text = "0"
+label_settings = SubResource("LabelSettings_e7jhi")
+
+[node name="Title" type="Label" parent="UI/Reflection/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 0
+text = "Score"
+label_settings = SubResource("LabelSettings_e7jhi")
+
+[node name="P2Score" type="Label" parent="UI/Reflection/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 0
+text = "0"
+label_settings = SubResource("LabelSettings_e7jhi")
+
+[node name="TouchControls" type="MarginContainer" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 50
+theme_override_constants/margin_top = 50
+theme_override_constants/margin_right = 50
+theme_override_constants/margin_bottom = 50
+
+[node name="HBoxContainer" type="HBoxContainer" parent="UI/TouchControls"]
+layout_mode = 2
+size_flags_vertical = 8
+
+[node name="Control" type="Control" parent="UI/TouchControls/HBoxContainer"]
+custom_minimum_size = Vector2(64, 64)
+layout_mode = 2
+
+[node name="MoveLeft" type="TouchScreenButton" parent="UI/TouchControls/HBoxContainer/Control"]
+texture_filter = 1
+texture_normal = ExtResource("1_ca2s0")
+texture_pressed = ExtResource("2_wjo53")
+action = "move_left"
+visibility_mode = 1
+
+[node name="Control2" type="Control" parent="UI/TouchControls/HBoxContainer"]
+custom_minimum_size = Vector2(64, 64)
+layout_mode = 2
+
+[node name="MoveRight" type="TouchScreenButton" parent="UI/TouchControls/HBoxContainer/Control2"]
+texture_filter = 1
+position = Vector2(64, 64)
+rotation = -3.14159
+texture_normal = ExtResource("1_ca2s0")
+texture_pressed = ExtResource("2_wjo53")
+action = "move_right"
+visibility_mode = 1
+
+[node name="Control3" type="Control" parent="UI/TouchControls/HBoxContainer"]
+custom_minimum_size = Vector2(64, 64)
+layout_mode = 2
+size_flags_horizontal = 10
+
+[node name="Attack" type="TouchScreenButton" parent="UI/TouchControls/HBoxContainer/Control3"]
+texture_filter = 1
+texture_normal = ExtResource("4_okvb3")
+texture_pressed = ExtResource("5_c62tk")
+action = "attack"
+visibility_mode = 1
+
+[node name="FighterSelection" parent="UI" node_paths=PackedStringArray("spawner") instance=ExtResource("6_jfh2b")]
+visible = false
+spawner = NodePath("../../MultiplayerSpawner")
+
+[node name="Disconnect" type="Button" parent="UI"]
+offset_right = 8.0
+offset_bottom = 8.0
+text = "Dissconnect"
+script = SubResource("GDScript_4r8mb")

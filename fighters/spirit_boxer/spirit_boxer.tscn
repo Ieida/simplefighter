@@ -1,4 +1,4 @@
-[gd_scene load_steps=27 format=3 uid="uid://ifmhb05jcg51"]
+[gd_scene load_steps=26 format=3 uid="uid://ifmhb05jcg51"]
 
 [ext_resource type="Texture2D" uid="uid://c1umpc10tu4r0" path="res://fighters/spirit_boxer/Idle.png" id="1_vb2a0"]
 [ext_resource type="PackedScene" uid="uid://bveyxyudvae2n" path="res://components/hitbox/hitbox.tscn" id="2_vryxx"]
@@ -24,31 +24,70 @@ var can_move: bool = true
 var can_attack: bool = true
 var is_attacking: bool
 var attack_count: int
-@onready var hitbox: Hitbox = $Hitbox
+@export var hitbox: Hitbox
+var id: int
+var input: float
 
 
-func _enter_tree():
-	set_multiplayer_authority(int(str(name)))
-	if multiplayer.is_server():
-		global_position = get_tree().get_first_node_in_group(&\"p1sp\").global_position
-	else:
-		global_position = get_tree().get_first_node_in_group(&\"p2sp\").global_position
+func _is_input_peer() -> bool:
+	return multiplayer.has_multiplayer_peer() and multiplayer.get_unique_id() == id
 
 
 func _ready():
 	hitbox.took_damage.connect(_on_hitbox_took_damage)
 	hitbox.health_depleted.connect(_on_hitbox_health_depleted)
 	animation_player.animation_finished.connect(_on_animation_finished)
+	if not is_multiplayer_authority():
+		request_state_sync.rpc_id(1)
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func request_state_sync():
+	var i = multiplayer.get_remote_sender_id()
+	sync_state.rpc_id(i, id, hitbox.health)
+
+
+@rpc(\"any_peer\", \"call_local\", \"unreliable_ordered\")
+func _send_input(inp: float):
+	input = inp
+
+
+@rpc(\"authority\", \"call_local\", \"reliable\")
+func set_id(new_id: int):
+	id = new_id
+	if id == -1:
+		$ReadyLabel.show()
+		modulate = modulate.lerp(Color.BLACK, 0.5)
+		hitbox.monitorable = false
+	else:
+		$ReadyLabel.hide()
+		modulate = Color.WHITE
+		hitbox.monitorable = true
+
+
+@rpc(\"authority\", \"call_local\", \"reliable\")
+func sync_state(i: int, h: int):
+	set_id(i)
+	hitbox.health = h
+
+
+@rpc(\"authority\", \"call_local\", \"unreliable_ordered\")
+func _sync_position(pos: Vector2):
+	global_position = pos
 
 
 func _physics_process(_delta):
-	if is_multiplayer_authority():
-		if can_move:
-			var direction = Input.get_axis(&\"move_left\", &\"move_right\")
-			if direction:
-				velocity.x = direction * speed
-			else:
-				velocity.x = move_toward(velocity.x, 0, speed)
+	if can_move:
+		var direction = Input.get_axis(&\"move_left\", &\"move_right\")
+		if _is_input_peer():
+			_send_input.rpc(direction)
+		else:
+			direction = input
+		
+		if direction:
+			velocity.x = direction * speed
+		else:
+			velocity.x = move_toward(velocity.x, 0, speed)
 	
 	move_and_slide()
 	
@@ -61,16 +100,12 @@ func _physics_process(_delta):
 		else:
 			animation_player.play(&\"idle\")
 	
-	if is_multiplayer_authority():
-		sync.rpc(velocity)
-		if can_attack:
-			if Input.is_action_just_pressed(&\"attack\"):
-				if attack_count == 0:
-					attack_1.rpc()
-				elif attack_count == 1:
-					attack_2.rpc()
-				elif attack_count == 2:
-					attack_3.rpc()
+	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		_sync_position.rpc(global_position)
+	
+	if _is_input_peer() and can_attack:
+		if Input.is_action_just_pressed(&\"attack\"):
+			attack.rpc()
 
 
 func _on_animation_finished(anim_name: StringName):
@@ -90,7 +125,8 @@ func _on_hitbox_health_depleted():
 	can_attack = false
 	velocity = Vector2.ZERO
 	set_physics_process(false)
-	animation_player.play(&\"die\")
+	animation_player.play(&\"RESET\")
+	animation_player.queue(&\"die\")
 
 
 func _on_hitbox_took_damage():
@@ -99,7 +135,20 @@ func _on_hitbox_took_damage():
 	velocity = Vector2.ZERO
 	set_physics_process(false)
 	animation_player.stop()
-	animation_player.play(&\"damaged\")
+	animation_player.play(&\"RESET\")
+	animation_player.queue(&\"damaged\")
+
+
+@rpc(\"any_peer\", \"call_local\", \"reliable\")
+func attack():
+	if not is_multiplayer_authority() or multiplayer.get_remote_sender_id() != id or not can_attack: return
+	
+	if attack_count == 0:
+		attack_1.rpc()
+	elif attack_count == 1:
+		attack_2.rpc()
+	elif attack_count == 2:
+		attack_3.rpc()
 
 
 @rpc(\"authority\", \"call_local\", \"reliable\")
@@ -108,7 +157,8 @@ func attack_1():
 	can_move = false
 	is_attacking = true
 	attack_count = 1
-	animation_player.play(&\"attack_1\")
+	animation_player.play(&\"RESET\")
+	animation_player.queue(&\"attack_1\")
 	await animation_player.animation_finished
 	can_move = true
 	is_attacking = false
@@ -122,7 +172,8 @@ func attack_2():
 	can_move = false
 	is_attacking = true
 	attack_count = 2
-	animation_player.play(&\"attack_2\")
+	animation_player.play(&\"RESET\")
+	animation_player.queue(&\"attack_2\")
 	await animation_player.animation_finished
 	can_move = true
 	is_attacking = false
@@ -136,7 +187,8 @@ func attack_3():
 	can_move = false
 	is_attacking = true
 	attack_count = 3
-	animation_player.play(&\"attack_3\")
+	animation_player.play(&\"RESET\")
+	animation_player.queue(&\"attack_3\")
 	await animation_player.animation_finished
 	can_move = true
 	is_attacking = false
@@ -162,7 +214,7 @@ func respawn(pos: Vector2):
 	attack_count = 0
 
 
-@rpc(\"authority\", \"call_remote\", \"unreliable\")
+@rpc(\"authority\", \"call_remote\", \"unreliable_ordered\")
 func sync(vel: Vector2):
 	velocity = vel
 "
@@ -219,7 +271,7 @@ tracks/0/keys = {
 "times": PackedFloat32Array(0),
 "transitions": PackedFloat32Array(1),
 "update": 1,
-"values": [null]
+"values": [ExtResource("1_vb2a0")]
 }
 tracks/1/type = "value"
 tracks/1/imported = false
@@ -231,7 +283,7 @@ tracks/1/keys = {
 "times": PackedFloat32Array(0),
 "transitions": PackedFloat32Array(1),
 "update": 1,
-"values": [1]
+"values": [4]
 }
 tracks/2/type = "value"
 tracks/2/imported = false
@@ -643,13 +695,10 @@ _data = {
 "run": SubResource("Animation_ouvre")
 }
 
-[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_jy2bq"]
-properties/0/path = NodePath(".:position")
-properties/0/spawn = true
-properties/0/replication_mode = 2
-
-[node name="SpiritBoxer" type="CharacterBody2D"]
+[node name="SpiritBoxer" type="CharacterBody2D" node_paths=PackedStringArray("hitbox")]
+modulate = Color(0.5, 0.5, 0.5, 1)
 script = SubResource("GDScript_etmds")
+hitbox = NodePath("Hitbox")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("RectangleShape2D_5v6rv")
@@ -657,8 +706,9 @@ shape = SubResource("RectangleShape2D_5v6rv")
 [node name="Reflection" type="Sprite2D" parent="."]
 modulate = Color(1, 1, 1, 0.25098)
 texture_filter = 1
+scale = Vector2(1, 0.5)
 texture = ExtResource("1_vb2a0")
-offset = Vector2(0, 25)
+offset = Vector2(0, 35)
 flip_v = true
 hframes = 4
 vframes = 4
@@ -666,9 +716,12 @@ script = SubResource("GDScript_miwuf")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 texture_filter = 1
+texture = ExtResource("1_vb2a0")
 offset = Vector2(52, -5)
+vframes = 4
 
 [node name="Hitbox" parent="." instance=ExtResource("2_vryxx")]
+monitorable = false
 health = 1000
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hitbox"]
@@ -723,5 +776,17 @@ libraries = {
 }
 autoplay = "idle"
 
-[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
-replication_config = SubResource("SceneReplicationConfig_jy2bq")
+[node name="ReadyLabel" type="Label" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -18.75
+offset_top = -5.75
+offset_right = 56.25
+offset_bottom = 17.25
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(0.5, 0.5)
+text = "not ready"

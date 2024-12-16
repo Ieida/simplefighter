@@ -13,7 +13,13 @@ config_version=5
 config/name="SimpleFighter"
 run/main_scene="res://multiplayer.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
+boot_splash/show_image=false
 config/icon="res://icon.svg"
+
+[autoload]
+
+DebugOutput="*res://essentials/debug_output.tscn"
+OnlineSession="res://essentials/online_session.tscn"
 
 [display]
 
@@ -25,7 +31,7 @@ window/stretch/scale_mode="integer"
 
 [editor]
 
-run/main_run_args="--d"
+run/main_run_args="--l"
 
 [input]
 
@@ -45,8 +51,13 @@ attack={
 ]
 }
 
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
 2d/snap/snap_2d_transforms_to_pixel=true

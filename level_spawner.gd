@@ -1,13 +1,23 @@
 extends MultiplayerSpawner
 
 
-@onready var level: Node = $"../Level"
+@onready var parent: Node = $"../Level"
 
 
 func change_level(to: int):
-	for c in level.get_children():
-		level.remove_child(c)
+	for c in parent.get_children():
+		if c == self: continue
+		parent.remove_child(c)
 		c.queue_free()
 	
 	var s = load(get_spawnable_scene(to)) as PackedScene
-	level.add_child(s.instantiate())
+	var i = s.instantiate()
+	parent.add_child(i, true)
+
+
+func unload_all_levels():
+	for c in parent.get_children():
+		if c == self: continue
+		
+		parent.remove_child(c)
+		c.queue_free()
